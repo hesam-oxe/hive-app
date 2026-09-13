@@ -1,6 +1,6 @@
 use super::catalog::{load_catalog, resolve};
 use super::detect::{parse_os_release, CommandExecutor};
-use super::registry::build_install_cmd;
+use super::registry::{build_install_cmd, build_versioned_install_cmd};
 use super::search::{
     build_search_cmd, details, normalize_search, parse_kind, rank_and_filter, SearchRunner,
     SearchResult,
@@ -445,4 +445,69 @@ fn details_extracts_fields() {
     assert!(d.description.contains("Persistent"));
     assert_eq!(d.homepage_url.as_deref(), Some("https://redis.io"));
     assert!(d.exact_command.contains("apt-get show"));
+}
+
+// --- versioned installs (registry.rs) ---------------------------------------
+
+#[test]
+fn apt_pins_version_with_equals() {
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Apt, "php", Some("8.3"));
+    assert_eq!(cmd, vec!["apt-get", "install", "-y", "php=8.3"]);
+}
+
+#[test]
+fn apk_pins_version_with_equals() {
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Apk, "curl", Some("8.5.0"));
+    assert_eq!(cmd, vec!["apk", "add", "curl=8.5.0"]);
+}
+
+#[test]
+fn brew_pins_version_with_at() {
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Brew, "node", Some("20"));
+    assert_eq!(cmd, vec!["brew", "install", "node@20"]);
+}
+
+#[test]
+fn choco_pins_version_with_flag() {
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Choco, "php", Some("8.3.0"));
+    assert_eq!(cmd, vec!["choco", "install", "php", "-y", "--version", "8.3.0"]);
+}
+
+#[test]
+fn winget_pins_version_with_flag() {
+    let cmd =
+        build_versioned_install_cmd(PackageManagerKind::Winget, "OpenJS.NodeJS", Some("20.1.0"));
+    assert!(cmd.contains(&"--version".to_string()));
+    assert!(cmd.contains(&"20.1.0".to_string()));
+    assert!(cmd.contains(&"OpenJS.NodeJS".to_string()));
+}
+
+#[test]
+fn empty_version_installs_latest() {
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Apt, "php", None);
+    assert_eq!(cmd, build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php"));
+    let cmd = build_versioned_install_cmd(PackageManagerKind::Apt, "php", Some("  "));
+    assert_eq!(cmd, build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php"));
+}
+
+#[test]
+fn managers_without_pinning_install_latest() {
+    // pacman/scoop/nix have no reliable pin syntax: must emit a plain,
+    // manager-accepted install rather than a fabricated `pkg-version` name.
+    for kind in [PackageManagerKind::Pacman, PackageManagerKind::Scoop, PackageManagerKind::Nix] {
+        let cmd = build_versioned_install_cmd(kind, "htop", Some("3.3.0"));
+        assert_eq!(cmd, build_install_cmd(kind, PmAction::Install, "htop"));
+    }
+}
+
+// --- failure classification (installer/progress.rs) --------------------------
+
+#[test]
+fn classify_failure_reasons() {
+    use crate::core::system::installer::progress::classify_failure;
+    assert_eq!(classify_failure(Some(1), "E: permission denied"), "permission_denied");
+    assert_eq!(classify_failure(Some(100), "Failed to fetch http://…"), "network");
+    assert_eq!(classify_failure(Some(100), "E: Unable to locate package foo"), "not_found");
+    assert_eq!(classify_failure(Some(124), ""), "timeout");
+    assert_eq!(classify_failure(Some(1), "weird output"), "unknown");
 }
