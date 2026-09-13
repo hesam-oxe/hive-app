@@ -5,11 +5,17 @@ interface ReactShellPanelProps {
     packageManager?: string;
 }
 
-export function ReactShellPanel({ projectPath, packageManager }: ReactShellPanelProps) {
+export function ReactShellPanel({ projectPath, packageManager = "npm" }: ReactShellPanelProps) {
+    const projectName = projectPath.split("/").pop()?.split("\\").pop() || "react-app";
+    
     return (
         <TerminalShell 
-            projectPath={projectPath} 
-            packageManager={packageManager} 
+            projectPath={projectPath}
+            projectName={projectName}
+            projectType="React"
+            version="18"
+            packageManager={packageManager}
+            shellLabel="bash"
         />
     );
 }

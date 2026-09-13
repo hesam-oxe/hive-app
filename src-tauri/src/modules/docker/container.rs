@@ -1,205 +1,8 @@
-use serde::{Deserialize, Serialize};
+use super::models::*;
+use crate::modules::docker::DockerInfo;
+use std::collections::HashMap;
 use std::process::Command;
 use tauri::Emitter;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContainerInfo {
-    pub id: String,
-    pub name: String,
-    pub image: String,
-    pub status: String,
-    pub state: String,
-    pub ports: Vec<PortMapping>,
-    pub created: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PortMapping {
-    pub host_port: u16,
-    pub container_port: u16,
-    pub protocol: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContainerDetails {
-    pub id: String,
-    pub name: String,
-    pub image: String,
-    pub image_id: String,
-    pub status: String,
-    pub state: String,
-    pub created: String,
-    pub started_at: String,
-    pub finished_at: String,
-    pub restart_count: u32,
-    pub restart_policy: String,
-    pub platform: String,
-    pub ports: Vec<PortMapping>,
-    pub env_vars: Vec<String>,
-    pub labels: Vec<LabelEntry>,
-    pub mounts: Vec<MountInfo>,
-    pub networks: Vec<NetworkInfo>,
-    pub cpu_shares: u64,
-    pub memory_limit: u64,
-    pub memory_swap: i64,
-    pub hostname: String,
-    pub ip_address: String,
-    pub cmd: Vec<String>,
-    pub entrypoint: Vec<String>,
-    pub working_dir: String,
-    pub user: String,
-    pub privileged: bool,
-    pub pid: u64,
-    pub size_rw: Option<i64>,
-    pub size_root_fs: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LabelEntry {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MountInfo {
-    pub mount_type: String,
-    pub source: String,
-    pub destination: String,
-    pub mode: String,
-    pub rw: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkInfo {
-    pub name: String,
-    pub ip_address: String,
-    pub mac_address: String,
-    pub gateway: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContainerStats {
-    pub cpu: String,
-    pub memory: String,
-    pub memperc: String,
-    pub net: String,
-    pub block: String,
-    pub pids: String,
-    pub cpu_raw: f64,
-    pub mem_used_mb: f64,
-    pub mem_limit_mb: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateDatabaseContainerRequest {
-    pub db_type: String,
-    pub container_name: String,
-    pub version: String,
-    pub host_port: u16,
-    pub root_password: String,
-    pub database_name: String,
-    pub username: String,
-    pub password: String,
-    pub data_volume: Option<String>,
-    pub memory_limit: Option<String>,
-    pub cpu_limit: Option<f32>,
-    pub restart_policy: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateContainerResult {
-    pub success: bool,
-    pub container_id: Option<String>,
-    pub container_name: String,
-    pub connection_string: Option<String>,
-    pub host: String,
-    pub port: u16,
-    pub database: String,
-    pub username: String,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageInfo {
-    pub id: String,
-    pub repository: String,
-    pub tag: String,
-    pub created: String,
-    pub size: String,
-    pub digest: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkDetail {
-    pub id: String,
-    pub name: String,
-    pub driver: String,
-    pub scope: String,
-    pub ipam_subnet: String,
-    pub ipam_gateway: String,
-    pub containers_count: u32,
-    pub internal: bool,
-    pub attachable: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VolumeInfo {
-    pub name: String,
-    pub driver: String,
-    pub mountpoint: String,
-    pub created: String,
-    pub size: String,
-    pub containers: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemInfo {
-    pub containers_total: u32,
-    pub containers_running: u32,
-    pub containers_paused: u32,
-    pub containers_stopped: u32,
-    pub images: u32,
-    pub server_version: String,
-    pub storage_driver: String,
-    pub memory_total: u64,
-    pub cpus: u32,
-    pub os: String,
-    pub kernel_version: String,
-    pub architecture: String,
-    pub disk_usage_images: String,
-    pub disk_usage_containers: String,
-    pub disk_usage_volumes: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContainerProcess {
-    pub pid: String,
-    pub ppid: String,
-    pub user: String,
-    pub cpu: String,
-    pub mem: String,
-    pub vsz: String,
-    pub rss: String,
-    pub tty: String,
-    pub stat: String,
-    pub start: String,
-    pub time: String,
-    pub cmd: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenameRequest {
-    pub old_name: String,
-    pub new_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateContainerRequest {
-    pub container_name: String,
-    pub memory_limit: Option<String>,
-    pub cpu_shares: Option<u64>,
-    pub restart_policy: Option<String>,
-}
 
 fn docker_cmd(args: &[&str]) -> Result<String, String> {
     let output = Command::new("docker")
@@ -481,6 +284,7 @@ pub async fn inspect_container(container_name: String) -> Result<ContainerDetail
         entrypoint,
     })
 }
+
 #[tauri::command]
 pub async fn get_container_processes(
     container_name: String,
@@ -1249,17 +1053,30 @@ pub async fn execute_sql_in_container(
     database: String,
     query: String,
 ) -> Result<String, String> {
-    let cmd = match db_type.as_str() {
-        "mysql" | "mariadb" => format!(
-            "mysql -u{} -p{} {} -e '{}'",
-            username, password, database, query
-        ),
-        "postgres" | "postgresql" => format!("psql -U {} -d {} -c '{}'", username, database, query),
+    // Build the client argv directly — no shell interpolation. Credentials and
+    // the query are passed as separate argv elements to `docker exec`, so a
+    // malicious query cannot inject additional commands.
+    let client_args: Vec<&str> = match db_type.as_str() {
+        "mysql" | "mariadb" => vec![
+            "mysql",
+            &format!("-u{}", username),
+            &format!("-p{}", password),
+            &database,
+            "--batch",
+            "--raw",
+            "-e",
+            &query,
+        ],
+        "postgres" | "postgresql" => vec![
+            "psql", "-U", &username, "-d", &database, "-tA", "-c", &query,
+        ],
         _ => return Err("Unsupported database type for SQL execution".to_string()),
     };
 
     let output = Command::new("docker")
-        .args(["exec", &container_name, "sh", "-c", &cmd])
+        .arg("exec")
+        .arg(&container_name)
+        .args(&client_args)
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -1274,13 +1091,26 @@ pub async fn execute_sql_in_container(
 pub async fn run_docker_compose(
     project_name: String,
     compose_content: String,
-    env_vars: std::collections::HashMap<String, String>,
+    env_vars: HashMap<String, String>,
     window: tauri::Window,
 ) -> Result<(), String> {
     let tmp_dir = std::env::temp_dir().join(format!("hive_compose_{}", project_name));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
     let compose_file = tmp_dir.join("docker-compose.yml");
     std::fs::write(&compose_file, compose_content).map_err(|e| e.to_string())?;
+
+    // Validate env keys so a caller cannot smuggle extra directives
+    // (e.g. a key containing a newline + `FOO=bar`) into the .env file.
+    let valid_key = |k: &str| {
+        !k.is_empty()
+            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !k.starts_with(|c: char| c.is_ascii_digit())
+    };
+    for k in env_vars.keys() {
+        if !valid_key(k) {
+            return Err(format!("Invalid environment variable name '{}'", k));
+        }
+    }
 
     let env_file_content: String = env_vars
         .iter()
@@ -1357,36 +1187,87 @@ pub async fn backup_database_container(
     database: String,
     output_path: String,
 ) -> Result<String, String> {
-    let cmd = match db_type.as_str() {
-        "mysql" | "mariadb" => format!(
-            "mysqldump -u{} -p{} {} > /tmp/backup.sql && cat /tmp/backup.sql",
-            username, password, database
-        ),
-        "postgres" | "postgresql" => format!("pg_dump -U {} {}", username, database),
-        "mongodb" => format!(
-            "mongodump --username {} --password {} --db {} --archive --gzip",
-            username, password, database
-        ),
+    // Dump to a temp file *inside* the container (argv-only, no shell), then
+    // copy the file out with `docker cp`. This avoids both shell interpolation
+    // of credentials and the fragile `> /tmp/backup.sql && cat` redirection.
+    let in_container_path = "/tmp/hive_backup.sql";
+    let dump_args: Vec<&str> = match db_type.as_str() {
+        "mysql" | "mariadb" => vec![
+            "mysqldump",
+            &format!("-u{}", username),
+            &format!("-p{}", password),
+            &database,
+            "--result-file",
+            in_container_path,
+        ],
+        "postgres" | "postgresql" => vec![
+            "pg_dump",
+            "-U",
+            &username,
+            "-f",
+            in_container_path,
+            &database,
+        ],
+        "mongodb" => vec![
+            "mongodump",
+            "--username",
+            &username,
+            "--password",
+            &password,
+            "--db",
+            &database,
+            "--archive",
+            in_container_path,
+        ],
         _ => return Err("Unsupported database type for backup".to_string()),
     };
 
-    let output = Command::new("docker")
-        .args(["exec", &container_name, "sh", "-c", &cmd])
+    let dump_output = Command::new("docker")
+        .arg("exec")
+        .arg(&container_name)
+        .args(&dump_args)
         .output()
         .map_err(|e| e.to_string())?;
 
-    if output.status.success() {
-        std::fs::write(&output_path, &output.stdout).map_err(|e| e.to_string())?;
-        Ok(format!("Backup saved to {}", output_path))
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    if !dump_output.status.success() {
+        return Err(String::from_utf8_lossy(&dump_output.stderr).to_string());
     }
+
+    let copy_output = Command::new("docker")
+        .args([
+            "cp",
+            &format!("{}:{}", container_name, in_container_path),
+            &output_path,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !copy_output.status.success() {
+        return Err(String::from_utf8_lossy(&copy_output.stderr).to_string());
+    }
+
+    Ok(format!("Backup saved to {}", output_path))
+}
+
+/// Splits a whitespace-separated command line into argv. This intentionally
+/// does NOT support shell metacharacters (pipes, redirection, globs): those
+/// would require shell interpolation, which is a command-injection vector.
+/// Callers that need shell features should use the shell service directly.
+fn split_command_argv(command: &str) -> Result<Vec<String>, String> {
+    let parts: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
+    if parts.is_empty() {
+        return Err("Empty command".to_string());
+    }
+    Ok(parts)
 }
 
 #[tauri::command]
 pub async fn exec_in_container(container_name: String, command: String) -> Result<String, String> {
+    let argv = split_command_argv(&command)?;
     let output = Command::new("docker")
-        .args(["exec", &container_name, "sh", "-c", &command])
+        .arg("exec")
+        .arg(&container_name)
+        .args(&argv)
         .output()
         .map_err(|e| format!("Failed to exec: {}", e))?;
 

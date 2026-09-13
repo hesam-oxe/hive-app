@@ -4,17 +4,15 @@ use super::db::{
     tunnel_session_get_active, tunnel_session_get_all_active, tunnel_session_history,
     tunnel_session_set_error, tunnel_session_set_url, tunnel_session_stop,
 };
-use once_cell::sync::Lazy;
+use crate::core::database::{Event, EventCategory};
+use crate::core::system::process::PROCESS_REGISTRY;
+use crate::modules::common::server::kill_pid_tree;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::process::{Command, Stdio};
 use tauri::Emitter;
-
-static TUNNEL_PROCS: Lazy<Mutex<HashMap<i64, Child>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartTunnelRequest {
@@ -35,22 +33,6 @@ pub struct TunnelLog {
     pub line: String,
     pub is_error: bool,
     pub timestamp: Option<String>,
-}
-
-fn kill_pid(pid: u32) {
-    #[cfg(unix)]
-    unsafe {
-        libc::kill(-(pid as i32), libc::SIGTERM);
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        libc::kill(-(pid as i32), libc::SIGKILL);
-        libc::kill(pid as i32, libc::SIGKILL);
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output();
-    }
 }
 
 fn extract_url(line: &str) -> Option<String> {
@@ -81,9 +63,7 @@ fn extract_url(line: &str) -> Option<String> {
 }
 
 fn get_log_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".hive")
+    crate::modules::common::path::hive_base_dir()
         .join("logs")
         .join("tunnels")
 }
@@ -92,7 +72,6 @@ fn get_log_file(session_id: i64) -> PathBuf {
     get_log_dir().join(format!("{}.log", session_id))
 }
 
-/// Write a structured log line:  [RFC3339_TIMESTAMP] [LEVEL] MESSAGE
 fn write_log(session_id: i64, line: &str, is_error: bool) {
     let log_file = get_log_file(session_id);
     if let Ok(mut file) = fs::OpenOptions::new()
@@ -102,35 +81,27 @@ fn write_log(session_id: i64, line: &str, is_error: bool) {
     {
         let timestamp = chrono::Utc::now().to_rfc3339();
         let level = if is_error { "ERR" } else { "INF" };
-        // Format: [2024-01-01T12:00:00Z] [INF] message
         let _ = writeln!(file, "[{}] [{}] {}", timestamp, level, line);
     }
 }
 
-/// Parse a log file line back into (timestamp, level, message).
-/// Line format: [2024-01-01T12:00:00Z] [INF] rest of message
 fn parse_log_line(raw: &str) -> (Option<String>, bool, String) {
-    // Must start with '[' for our structured format
     if !raw.starts_with('[') {
         return (None, false, raw.to_string());
     }
 
-    // Extract timestamp between first [ and ]
     let after_open = &raw[1..];
     let ts_end = match after_open.find(']') {
         Some(i) => i,
         None => return (None, false, raw.to_string()),
     };
     let timestamp_str = &after_open[..ts_end];
-    // Validate it looks like a timestamp
     if !timestamp_str.contains('T') && !timestamp_str.contains('-') {
         return (None, false, raw.to_string());
     }
 
-    // After first '] ' should be '[LEVEL] message'
     let rest = after_open[ts_end + 1..].trim_start();
     if !rest.starts_with('[') {
-        // No level tag – treat whole rest as message
         return (Some(timestamp_str.to_string()), false, rest.to_string());
     }
 
@@ -142,7 +113,6 @@ fn parse_log_line(raw: &str) -> (Option<String>, bool, String) {
     let level = &after_level_open[..level_end];
     let is_error = level.eq_ignore_ascii_case("ERR");
 
-    // Everything after '] ' is the message
     let message = after_level_open[level_end + 1..].trim_start().to_string();
 
     (Some(timestamp_str.to_string()), is_error, message)
@@ -153,6 +123,13 @@ pub async fn start_tunnel(
     window: tauri::Window,
     request: StartTunnelRequest,
 ) -> Result<TunnelSession, String> {
+    let _ = Event::info(
+        EventCategory::Tunnel,
+        "tunnel.starting",
+        "Starting Tunnel",
+        &format!("Starting tunnel for project: {}", request.project_name),
+    );
+
     if let Some(existing) = tunnel_session_get_active(&request.project_path) {
         let _ = stop_tunnel(existing.id).await;
     }
@@ -162,7 +139,17 @@ pub async fn start_tunnel(
         bin.to_string_lossy().to_string()
     } else {
         let sys = Command::new("cloudflared").arg("--version").output();
-        if sys.is_err() || !sys.unwrap().status.success() {
+        let cloudflared_available = match sys {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        };
+        if !cloudflared_available {
+            let _ = Event::error(
+                EventCategory::Tunnel,
+                "tunnel.cloudflared.missing",
+                "Cloudflared Not Installed",
+                "cloudflared is not installed. Please install it first.",
+            );
             return Err("cloudflared is not installed. Please install it first.".to_string());
         }
         "cloudflared".to_string()
@@ -209,26 +196,35 @@ pub async fn start_tunnel(
             "Failed to start cloudflared: {}\nCommand: {}",
             e, full_command
         );
-        println!("[TUNNEL ERROR] {}", msg);
         write_log(session_id, &msg, true);
+        let _ = Event::error(
+            EventCategory::Tunnel,
+            "tunnel.start.failed",
+            "Failed to Start Tunnel",
+            &msg,
+        );
         msg
     })?;
 
     let pid = child.id();
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to capture cloudflared stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Failed to capture cloudflared stderr".to_string())?;
 
-    {
-        let conn = crate::core::database::DB.lock().unwrap();
+    if let Ok(conn) = crate::core::database::db() {
         let _ = conn.execute(
             "UPDATE tunnel_sessions SET pid = ?1 WHERE id = ?2",
             rusqlite::params![pid as i64, session_id],
         );
     }
 
-    TUNNEL_PROCS.lock().unwrap().insert(session_id, child);
+    PROCESS_REGISTRY.insert(session_id.to_string(), child);
 
-    // ── stdout thread ──────────────────────────────────────────────────────
     let window_clone = window.clone();
     let sid = session_id;
     std::thread::spawn(move || {
@@ -258,7 +254,6 @@ pub async fn start_tunnel(
         }
     });
 
-    // ── stderr thread ──────────────────────────────────────────────────────
     let window_clone = window.clone();
     let sid = session_id;
     std::thread::spawn(move || {
@@ -304,6 +299,13 @@ pub async fn start_tunnel(
     let session =
         tunnel_session_get(session_id).ok_or_else(|| "Failed to retrieve session".to_string())?;
 
+    let _ = Event::success(
+        EventCategory::Tunnel,
+        "tunnel.started",
+        "Tunnel Started",
+        &format!("Tunnel started for project: {}", request.project_name),
+    );
+
     Ok(session)
 }
 
@@ -311,28 +313,58 @@ pub async fn start_tunnel(
 pub async fn stop_tunnel(session_id: i64) -> Result<(), String> {
     write_log(session_id, "=== Stopping tunnel ===", false);
 
-    if let Some(mut child) = TUNNEL_PROCS.lock().unwrap().remove(&session_id) {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
+    let _ = Event::info(
+        EventCategory::Tunnel,
+        "tunnel.stopping",
+        "Stopping Tunnel",
+        &format!("Stopping tunnel session: {}", session_id),
+    );
 
-    if let Some(session) = tunnel_session_get(session_id) {
-        if let Some(pid) = session.pid {
-            kill_pid(pid as u32);
+    // `kill_tree` only touches children currently held in the registry. A
+    // tunnel that survived a previous app run lives on only in the DB, so
+    // re-check the recorded PID as a fallback for orphaned cloudflared.
+    let held = PROCESS_REGISTRY.kill_tree(&session_id.to_string());
+    if !held {
+        if let Some(session) = tunnel_session_get(session_id) {
+            if let Some(pid) = session.pid {
+                kill_pid_tree(pid as u32);
+            }
         }
     }
-
     tunnel_session_stop(session_id);
     write_log(session_id, "=== Tunnel stopped successfully ===", false);
+
+    let _ = Event::success(
+        EventCategory::Tunnel,
+        "tunnel.stopped",
+        "Tunnel Stopped",
+        &format!("Tunnel session {} stopped successfully", session_id),
+    );
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_all_tunnels() -> Result<(), String> {
+    let _ = Event::info(
+        EventCategory::Tunnel,
+        "tunnel.stopping_all",
+        "Stopping All Tunnels",
+        "Stopping all active tunnels",
+    );
+
     let active = tunnel_session_get_all_active();
     for session in active {
         let _ = stop_tunnel(session.id).await;
     }
+
+    let _ = Event::success(
+        EventCategory::Tunnel,
+        "tunnel.all_stopped",
+        "All Tunnels Stopped",
+        "All tunnels stopped successfully",
+    );
+
     Ok(())
 }
 
@@ -366,7 +398,6 @@ pub fn get_tunnel_session(session_id: i64) -> Option<TunnelSession> {
 
 #[tauri::command]
 pub fn get_tunnel_logs(session_id: i64, limit: Option<usize>) -> Result<Vec<TunnelLog>, String> {
-    // Verify session exists
     tunnel_session_get(session_id).ok_or_else(|| format!("Session {} not found", session_id))?;
 
     let log_file = get_log_file(session_id);
@@ -378,7 +409,6 @@ pub fn get_tunnel_logs(session_id: i64, limit: Option<usize>) -> Result<Vec<Tunn
     let content =
         fs::read_to_string(&log_file).map_err(|e| format!("Failed to read log file: {}", e))?;
 
-    // Collect non-empty lines
     let all_lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
 
     let limit = limit.unwrap_or(200);
@@ -405,6 +435,12 @@ pub fn clear_tunnel_logs(session_id: i64) -> Result<(), String> {
     let log_file = get_log_file(session_id);
     if log_file.exists() {
         fs::write(&log_file, "").map_err(|e| format!("Failed to clear logs: {}", e))?;
+        let _ = Event::info(
+            EventCategory::Tunnel,
+            "tunnel.logs.cleared",
+            "Tunnel Logs Cleared",
+            &format!("Cleared logs for tunnel session: {}", session_id),
+        );
     }
     Ok(())
 }
