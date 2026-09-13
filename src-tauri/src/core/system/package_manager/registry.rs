@@ -289,3 +289,63 @@ pub fn build_install_cmd(kind: PackageManagerKind, action: PmAction, pkg: &str) 
         PackageManagerKind::Static => vec![],
     }
 }
+
+/// Builds the install argv for a package at an optional pinned version.
+///
+/// Version syntax differs per manager: some take it as part of the package
+/// name (`apt pkg=1.2`), others need a trailing flag
+/// (`choco … --version 1.2`). Managers without reliable pinning (pacman,
+/// scoop, nix, …) intentionally ignore the version and install latest rather
+/// than emitting a command line the manager would reject.
+///
+/// Pure function — easy to unit test without executing anything.
+pub fn build_versioned_install_cmd(
+    kind: PackageManagerKind,
+    pkg: &str,
+    version: Option<&str>,
+) -> Vec<String> {
+    let version = version.unwrap_or("").trim();
+    if version.is_empty() {
+        return build_install_cmd(kind, PmAction::Install, pkg);
+    }
+    match kind {
+        PackageManagerKind::Apt => vec![
+            "apt-get".into(),
+            "install".into(),
+            "-y".into(),
+            format!("{}={}", pkg, version),
+        ],
+        PackageManagerKind::Dnf | PackageManagerKind::Yum => vec![
+            binary_name(kind).into(),
+            "install".into(),
+            "-y".into(),
+            format!("{}-{}", pkg, version),
+        ],
+        PackageManagerKind::Apk => {
+            vec!["apk".into(), "add".into(), format!("{}={}", pkg, version)]
+        }
+        PackageManagerKind::Brew => {
+            vec!["brew".into(), "install".into(), format!("{}@{}", pkg, version)]
+        }
+        PackageManagerKind::Port => vec![
+            "port".into(),
+            "install".into(),
+            pkg.into(),
+            format!("@{}", version),
+        ],
+        PackageManagerKind::Winget => {
+            let mut argv = build_install_cmd(kind, PmAction::Install, pkg);
+            argv.push("--version".into());
+            argv.push(version.into());
+            argv
+        }
+        PackageManagerKind::Choco => {
+            let mut argv = build_install_cmd(kind, PmAction::Install, pkg);
+            argv.push("--version".into());
+            argv.push(version.into());
+            argv
+        }
+        // No reliable version-pinning syntax: install latest.
+        _ => build_install_cmd(kind, PmAction::Install, pkg),
+    }
+}

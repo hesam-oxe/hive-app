@@ -1,8 +1,8 @@
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 
 use tauri::{AppHandle, Emitter};
 
@@ -14,7 +14,7 @@ use crate::core::system::package_manager::types::PackageManagerKind;
 
 /// Read a tool's verify_binary / verify_version_arg from the catalog so we can
 /// confirm the install actually produced a working binary.
-fn verify_installed(tool_id: &str, binary: &str, version_arg: &str) -> bool {
+fn verify_installed(_tool_id: &str, binary: &str, version_arg: &str) -> bool {
     Command::new(binary)
         .arg(version_arg)
         .output()
@@ -81,6 +81,15 @@ pub fn cancel_process(tool_id: &str) -> bool {
     killed
 }
 
+/// Forget a tracked child, e.g. once it has exited and been reaped. Must be
+/// called on every completion path: a stale entry could otherwise make a later
+/// Cancel kill an unrelated process that reused the PID.
+pub fn untrack_process(tool_id: &str) {
+    if let Ok(mut guard) = ACTIVE_PROCESSES.lock() {
+        guard.remove(tool_id);
+    }
+}
+
 /// Run a managed (system package manager) install/update/remove with live
 /// streaming of stdout/stderr to the frontend. After the process exits we
 /// verify success by running `verify_binary --version` when one is supplied; for
@@ -97,6 +106,41 @@ pub fn run_managed_cmd(
     verify_binary: Option<&str>,
     verify_version_arg: &str,
 ) -> Result<(), String> {
+    let base = build_install_cmd(manager, action, package);
+    run_managed_argv(
+        app,
+        tool_id,
+        action,
+        manager,
+        base,
+        verify_binary,
+        verify_version_arg,
+    )
+}
+
+/// Same as [`run_managed_cmd`], but takes a pre-built argv instead of deriving
+/// it from `(action, package)`. Used for version-pinned installs whose argv
+/// carries extra flags (e.g. `choco … --version 1.2`).
+///
+/// `base_argv` is the manager command *without* any elevation prefix; elevation
+/// is resolved and prepended here from `manager`.
+#[allow(clippy::too_many_arguments)]
+pub fn run_managed_argv(
+    app: &AppHandle,
+    tool_id: &str,
+    action: crate::core::system::package_manager::PmAction,
+    manager: PackageManagerKind,
+    base_argv: Vec<String>,
+    verify_binary: Option<&str>,
+    verify_version_arg: &str,
+) -> Result<(), String> {
+    if base_argv.is_empty() {
+        return Err(format!(
+            "No install command available for {:?} on this system",
+            manager
+        ));
+    }
+
     let requires_elevation = requires_elevation(manager);
 
     // Network awareness (see "Online vs Offline Search Behavior"): installing or
@@ -125,10 +169,9 @@ pub fn run_managed_cmd(
         return Err(msg.to_string());
     }
 
-    let base = build_install_cmd(manager, action, package);
     let elevation = resolve_elevation(requires_elevation);
     let mut argv = elevation_prefix(&elevation);
-    argv.extend(base.iter().cloned());
+    argv.extend(base_argv.iter().cloned());
 
     let full_command = argv.join(" ");
 
@@ -203,12 +246,22 @@ pub fn run_managed_cmd(
         }
     });
 
+    // Keep the last few stderr lines so failures can be classified from real
+    // output (see `classify_failure`) instead of a placeholder string.
+    let stderr_tail: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
     let app_e = app.clone();
     let tool_e = tool_id.to_string();
+    let tail_e = Arc::clone(&stderr_tail);
     let stderr_thread = thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             if let Ok(l) = line {
+                if let Ok(mut tail) = tail_e.lock() {
+                    tail.push_back(l.clone());
+                    while tail.len() > 20 {
+                        tail.pop_front();
+                    }
+                }
                 let _ = app_e.emit(
                     "package-install-progress",
                     InstallProgress {
@@ -236,8 +289,16 @@ pub fn run_managed_cmd(
     let status = child.wait().map_err(|e| e.to_string())?;
     let exit_code = status.code();
 
+    // The child is reaped: drop its cancel entry so a later Cancel can't hit an
+    // unrelated process that reused the PID.
+    untrack_process(tool_id);
+
     if !status.success() {
-        let reason = classify_failure(exit_code, "see log");
+        let tail = stderr_tail
+            .lock()
+            .map(|g| g.iter().cloned().collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default();
+        let reason = classify_failure(exit_code, &tail);
         app.emit(
             "package-install-progress",
             InstallProgress {

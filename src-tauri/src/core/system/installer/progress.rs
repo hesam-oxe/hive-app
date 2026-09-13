@@ -59,8 +59,8 @@ pub fn classify_failure(exit_code: Option<i32>, stderr: &str) -> String {
         "dependency_conflict".into()
     } else if s.contains("no space left") || s.contains("disk full") || s.contains("write error") {
         "disk_space".into()
-    } else if exit_code == Some(0) {
-        "unknown".into()
+    } else if exit_code == Some(124) {
+        "timeout".into()
     } else {
         "unknown".into()
     }

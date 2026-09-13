@@ -1,11 +1,13 @@
 use crate::core::system::package_manager::catalog::{load_catalog, resolve, CatalogTool};
 use crate::core::system::package_manager::commands::detect_package_managers;
-use crate::core::system::package_manager::registry::build_install_cmd;
+use crate::core::system::package_manager::registry::{
+    build_versioned_install_cmd, requires_elevation,
+};
 use crate::core::system::package_manager::search::parse_kind;
 use crate::core::system::package_manager::types::{OsFamily, PackageManagerKind};
 use crate::core::system::package_manager::PmAction;
 
-use super::package_installer::{cancel_process, run_managed, run_managed_cmd};
+use super::package_installer::{cancel_process, run_managed, run_managed_argv, run_managed_cmd};
 use super::static_installer::{remove_static, run_static};
 
 fn host_os() -> OsFamily {
@@ -25,23 +27,6 @@ fn pick_manager(tool: &CatalogTool, detected: PackageManagerKind) -> PackageMana
     } else {
         PackageManagerKind::Static
     }
-}
-
-/// Whether installing via this manager normally requires privileged write.
-fn requires_elevation(manager: PackageManagerKind) -> bool {
-    matches!(
-        manager,
-        PackageManagerKind::Apt
-            | PackageManagerKind::Dnf
-            | PackageManagerKind::Yum
-            | PackageManagerKind::Pacman
-            | PackageManagerKind::Zypper
-            | PackageManagerKind::Apk
-            | PackageManagerKind::Xbps
-            | PackageManagerKind::Emerge
-            | PackageManagerKind::Eopkg
-            | PackageManagerKind::Port
-    )
 }
 
 #[tauri::command]
@@ -144,7 +129,11 @@ pub async fn update_tool(
 }
 
 #[tauri::command]
-pub async fn uninstall_tool(tool_id: String, version: String) -> Result<(), String> {
+pub async fn uninstall_tool(
+    app: tauri::AppHandle,
+    tool_id: String,
+    version: String,
+) -> Result<(), String> {
     let catalog = load_catalog();
     let tool = catalog
         .tools
@@ -174,17 +163,20 @@ pub async fn uninstall_tool(tool_id: String, version: String) -> Result<(), Stri
         .and_then(|p| p.name.clone())
         .unwrap_or_else(|| tool.verify_binary.clone());
 
-    let argv = build_install_cmd(detected, PmAction::Remove, &package);
-    let status = std::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .status()
-        .map_err(|e| format!("Failed to run uninstall: {}", e))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Uninstall of {} failed", package))
-    }
+    // Route through the managed runner so uninstalls get elevation (system
+    // managers like apt/dnf require root even for removal), live progress
+    // events and cancel support. No verify binary is passed: after a
+    // successful remove the binary *should* be gone, so the exit code alone
+    // decides success.
+    run_managed_cmd(
+        &app,
+        &tool_id,
+        PmAction::Remove,
+        detected,
+        &package,
+        None,
+        "",
+    )
 }
 
 // --- Universal (catalog-independent) install path ----------------------------
@@ -203,18 +195,24 @@ pub async fn universal_install(
 ) -> Result<(), String> {
     let kind = parse_kind(&manager)
         .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    if kind == PackageManagerKind::Static {
+        return Err(
+            "The static fallback has no install command — use the catalog for static binaries"
+                .to_string(),
+        );
+    }
 
-    let pkg = match version {
-        Some(v) if !v.is_empty() => format!("{}-{}", package, v),
-        _ => package.clone(),
-    };
+    // Version pinning is manager-specific (`apt pkg=1.2`, `choco … --version
+    // 1.2`, …); the registry builder knows each syntax. Managers without
+    // reliable pinning fall back to latest.
+    let argv = build_versioned_install_cmd(kind, &package, version.as_deref());
 
-    run_managed_cmd(
+    run_managed_argv(
         &app,
         &format!("{}:{}", manager, package),
         PmAction::Install,
         kind,
-        &pkg,
+        argv,
         None,
         "",
     )
@@ -229,6 +227,12 @@ pub async fn universal_update(
 ) -> Result<(), String> {
     let kind = parse_kind(&manager)
         .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    if kind == PackageManagerKind::Static {
+        return Err(
+            "The static fallback has no update command — use the catalog for static binaries"
+                .to_string(),
+        );
+    }
 
     run_managed_cmd(
         &app,
@@ -244,23 +248,31 @@ pub async fn universal_update(
 /// Uninstall an arbitrary package found via live search on the given manager.
 #[tauri::command]
 pub async fn universal_uninstall(
+    app: tauri::AppHandle,
     manager: String,
     package: String,
 ) -> Result<(), String> {
     let kind = parse_kind(&manager)
         .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
-
-    let argv = build_install_cmd(kind, PmAction::Remove, &package);
-    let status = std::process::Command::new(&argv[0])
-        .args(&argv[1..])
-        .status()
-        .map_err(|e| format!("Failed to run uninstall: {}", e))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Uninstall of {} failed", package))
+    if kind == PackageManagerKind::Static {
+        return Err(
+            "Static binaries have no system package to remove — use the catalog uninstall"
+                .to_string(),
+        );
     }
+
+    // Same runner as installs: elevation (removal also needs root on system
+    // managers), live progress and cancel support. Exit code alone decides
+    // success — the binary is expected to be gone afterwards.
+    run_managed_cmd(
+        &app,
+        &format!("{}:{}", manager, package),
+        PmAction::Remove,
+        kind,
+        &package,
+        None,
+        "",
+    )
 }
 
 /// Cancel an in-flight install (used by the UI's Cancel button). `tool_id` is the

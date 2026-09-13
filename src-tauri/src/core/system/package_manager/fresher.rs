@@ -9,7 +9,7 @@ use std::time::Duration;
 use chrono::Utc;
 use tauri::{AppHandle, Emitter};
 
-use super::registry::binary_name;
+use super::registry::{binary_name, requires_elevation};
 use super::types::PackageManagerKind;
 use super::search::parse_kind;
 use crate::core::system::installer::elevation::{elevation_prefix, resolve_elevation};
@@ -48,23 +48,6 @@ pub fn build_refresh_cmd(kind: PackageManagerKind) -> Vec<String> {
     }
 }
 
-/// Whether refreshing this manager's index normally needs privileged write.
-fn refresh_requires_elevation(kind: PackageManagerKind) -> bool {
-    matches!(
-        kind,
-        PackageManagerKind::Apt
-            | PackageManagerKind::Dnf
-            | PackageManagerKind::Yum
-            | PackageManagerKind::Pacman
-            | PackageManagerKind::Zypper
-            | PackageManagerKind::Apk
-            | PackageManagerKind::Xbps
-            | PackageManagerKind::Emerge
-            | PackageManagerKind::Eopkg
-            | PackageManagerKind::Port
-    )
-}
-
 /// Returns RFC3339 timestamp of the last successful index refresh for a manager.
 pub fn last_updated(kind: PackageManagerKind) -> Option<String> {
     FRESHNESS.lock().ok().and_then(|g| g.get(&format!("{:?}", kind)).cloned())
@@ -92,7 +75,9 @@ pub fn refresh_package_index(app: AppHandle, manager: String) -> Result<(), Stri
         return Ok(());
     }
 
-    let requires_elevation = refresh_requires_elevation(kind);
+    // Index refresh writes to the same system locations installs do, so it
+    // shares the registry's elevation rules.
+    let requires_elevation = requires_elevation(kind);
     let elevation = resolve_elevation(requires_elevation);
     let mut full = elevation_prefix(&elevation);
     full.extend(argv.iter().cloned());
