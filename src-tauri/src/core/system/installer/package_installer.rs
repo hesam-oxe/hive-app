@@ -7,7 +7,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 use super::elevation::{elevation_prefix, resolve_elevation};
-use super::progress::{classify_failure, InstallProgress};
+use super::progress::{InstallProgress, classify_failure};
 use crate::core::system::package_manager::fresher::has_internet;
 use crate::core::system::package_manager::registry::{build_install_cmd, requires_elevation};
 use crate::core::system::package_manager::types::PackageManagerKind;
@@ -38,7 +38,11 @@ pub fn track_process(tool_id: &str, pid: u32) {
 /// Attempt to cancel a running install by killing its process group/child.
 /// Mirrors the Unix/Windows handling in `core/system/process/kill.rs`.
 pub fn cancel_process(tool_id: &str) -> bool {
-    let pid = match ACTIVE_PROCESSES.lock().ok().and_then(|g| g.get(tool_id).copied()) {
+    let pid = match ACTIVE_PROCESSES
+        .lock()
+        .ok()
+        .and_then(|g| g.get(tool_id).copied())
+    {
         Some(p) => p,
         None => return false,
     };
@@ -49,7 +53,10 @@ pub fn cancel_process(tool_id: &str) -> bool {
             use std::process::Command;
             let grp = format!("-{}", pid);
             let _ = Command::new("kill").arg("-TERM").arg(&grp).output();
-            let _ = Command::new("kill").arg("-TERM").arg(pid.to_string()).output();
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(pid.to_string())
+                .output();
             // Verify it died.
             Command::new("kill")
                 .arg("-0")
@@ -317,7 +324,10 @@ pub fn run_managed_argv(
             },
         )
         .ok();
-        return Err(format!("Install failed (exit {:?}): {}", exit_code, full_command));
+        return Err(format!(
+            "Install failed (exit {:?}): {}",
+            exit_code, full_command
+        ));
     }
 
     // Verify via the tool's own binary when we know it (catalog path). For an
@@ -341,7 +351,11 @@ pub fn run_managed_argv(
             is_stderr: !verified,
             log: None,
             command: Some(full_command),
-            failure_reason: if verified { None } else { Some("verification_failed".into()) },
+            failure_reason: if verified {
+                None
+            } else {
+                Some("verification_failed".into())
+            },
             exit_code,
             done: true,
             success: verified,
@@ -352,7 +366,10 @@ pub fn run_managed_argv(
     if verified {
         Ok(())
     } else {
-        Err(format!("{} installed but could not be verified on PATH", tool_id))
+        Err(format!(
+            "{} installed but could not be verified on PATH",
+            tool_id
+        ))
     }
 }
 
@@ -368,5 +385,13 @@ pub fn run_managed(
     version_arg: &str,
     _requires_elevation: bool,
 ) -> Result<(), String> {
-    run_managed_cmd(app, tool_id, action, manager, package, Some(binary), version_arg)
+    run_managed_cmd(
+        app,
+        tool_id,
+        action,
+        manager,
+        package,
+        Some(binary),
+        version_arg,
+    )
 }

@@ -45,15 +45,24 @@ pub fn classify_failure(exit_code: Option<i32>, stderr: &str) -> String {
     let s = stderr.to_lowercase();
     if s.contains("permission denied") || s.contains("eacces") || s.contains("not permitted") {
         "permission_denied".into()
-    } else if s.contains("network") || s.contains("could not resolve") || s.contains("failed to fetch")
-        || s.contains("no route") || s.contains("timeout") || s.contains("temporary failure")
+    } else if s.contains("network")
+        || s.contains("could not resolve")
+        || s.contains("failed to fetch")
+        || s.contains("no route")
+        || s.contains("timeout")
+        || s.contains("temporary failure")
     {
         "network".into()
-    } else if s.contains("unable to locate") || s.contains("no package") || s.contains("not found")
-        || s.contains("eexist") || s.contains("no candidate")
+    } else if s.contains("unable to locate")
+        || s.contains("no package")
+        || s.contains("not found")
+        || s.contains("eexist")
+        || s.contains("no candidate")
     {
         "not_found".into()
-    } else if s.contains("conflict") || s.contains("breaking") || s.contains("held package")
+    } else if s.contains("conflict")
+        || s.contains("breaking")
+        || s.contains("held package")
         || s.contains("already provided")
     {
         "dependency_conflict".into()

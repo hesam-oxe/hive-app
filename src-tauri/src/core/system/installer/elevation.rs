@@ -38,18 +38,30 @@ pub fn resolve_elevation(requires: bool) -> Elevation {
 
     if cfg!(target_os = "linux") {
         if which("pkexec") {
-            return Elevation { needs: true, kind: ElevationKind::Pkexec };
+            return Elevation {
+                needs: true,
+                kind: ElevationKind::Pkexec,
+            };
         }
         if which("sudo") {
-            return Elevation { needs: true, kind: ElevationKind::Sudo };
+            return Elevation {
+                needs: true,
+                kind: ElevationKind::Sudo,
+            };
         }
         // No graphical/terminal helper available: caller must surface the
         // command for the user to run manually.
-        return Elevation { needs: true, kind: ElevationKind::None };
+        return Elevation {
+            needs: true,
+            kind: ElevationKind::None,
+        };
     }
 
     // macOS/Windows: winget/choco/brew handle elevation internally via UAC.
-    Elevation { needs: true, kind: ElevationKind::None }
+    Elevation {
+        needs: true,
+        kind: ElevationKind::None,
+    }
 }
 
 /// The argv prefix (e.g. `["pkexec"]`) to prepend before the manager command.

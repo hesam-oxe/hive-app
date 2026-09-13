@@ -3,10 +3,10 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::thread;
 
-use super::catalog::{load_catalog, PackageCatalog};
-use super::detect::{detect_managers, parse_os_release, SystemExecutor};
+use super::catalog::{PackageCatalog, load_catalog};
+use super::detect::{SystemExecutor, detect_managers, parse_os_release};
 use super::search::{
-    details, managers_from_detection, parse_kind, search, SYSTEM_RUNNER, SearchResult,
+    SYSTEM_RUNNER, SearchResult, details, managers_from_detection, parse_kind, search,
 };
 use super::types::{DetectionResult, PackageManagerKind};
 
@@ -54,10 +54,7 @@ pub struct PackageStatus {
 
 /// Probe each catalog tool's `verify_binary` to determine install status.
 fn probe_version(binary: &str, version_arg: &str) -> Option<String> {
-    let out = Command::new(binary)
-        .arg(version_arg)
-        .output()
-        .ok()?;
+    let out = Command::new(binary).arg(version_arg).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -67,11 +64,7 @@ fn probe_version(binary: &str, version_arg: &str) -> Option<String> {
     } else {
         stdout
     };
-    if line.is_empty() {
-        None
-    } else {
-        Some(line)
-    }
+    if line.is_empty() { None } else { Some(line) }
 }
 
 #[tauri::command]
@@ -128,10 +121,7 @@ pub fn parse_os_release_public(content: &str) -> super::types::DistroInfo {
 /// core of the universal "search any package" experience — results come straight
 /// from the host's repositories, not a curated list.
 #[tauri::command]
-pub async fn search_system_packages(
-    term: String,
-    manager: Option<String>,
-) -> Vec<SearchResult> {
+pub async fn search_system_packages(term: String, manager: Option<String>) -> Vec<SearchResult> {
     if term.trim().is_empty() {
         return vec![];
     }

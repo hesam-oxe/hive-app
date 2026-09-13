@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::types::{OsFamily, PackageManagerKind};
 use super::registry::binary_name;
+use super::types::{OsFamily, PackageManagerKind};
 
 /// Embedded catalog, loaded at compile time so detection works fully offline.
 pub const CATALOG_JSON: &str = include_str!("catalog.json");
@@ -10,8 +10,9 @@ pub const CATALOG_JSON: &str = include_str!("catalog.json");
 /// catalog never changes at runtime, so re-parsing the JSON on every call (page
 /// mount, every install/uninstall) is wasted work. `once_cell`'s `LazyLock`
 /// makes the parse happen at most once, on first use.
-static CATALOG: std::sync::LazyLock<PackageCatalog> =
-    std::sync::LazyLock::new(|| serde_json::from_str(CATALOG_JSON).expect("catalog.json must be valid"));
+static CATALOG: std::sync::LazyLock<PackageCatalog> = std::sync::LazyLock::new(|| {
+    serde_json::from_str(CATALOG_JSON).expect("catalog.json must be valid")
+});
 
 /// A per-manager package description for a catalog tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,10 +66,7 @@ pub enum Resolution {
         package: String,
     },
     /// No manager mapping — fall back to a Hive-managed static binary.
-    Static {
-        archive: String,
-        url: String,
-    },
+    Static { archive: String, url: String },
     /// Nothing available: no manager found and no static entry.
     Unavailable,
 }

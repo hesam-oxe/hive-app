@@ -1,12 +1,12 @@
+use super::PmAction;
 use super::catalog::{load_catalog, resolve};
-use super::detect::{parse_os_release, CommandExecutor};
+use super::detect::{CommandExecutor, parse_os_release};
 use super::registry::{build_install_cmd, build_versioned_install_cmd};
 use super::search::{
-    build_search_cmd, details, normalize_search, parse_kind, rank_and_filter, SearchRunner,
-    SearchResult,
+    SearchResult, SearchRunner, build_search_cmd, details, normalize_search, parse_kind,
+    rank_and_filter,
 };
 use super::types::{DetectionResult, OsFamily, PackageManagerKind};
-use super::PmAction;
 
 // --- Mock executor: canned PATH/version/os-release results ------------------
 
@@ -105,7 +105,11 @@ fn apt_install_command() {
 
 #[test]
 fn winget_uses_exact_id() {
-    let cmd = build_install_cmd(PackageManagerKind::Winget, PmAction::Install, "OpenJS.NodeJS");
+    let cmd = build_install_cmd(
+        PackageManagerKind::Winget,
+        PmAction::Install,
+        "OpenJS.NodeJS",
+    );
     assert!(cmd.contains(&"--exact".to_string()));
     assert!(cmd.contains(&"OpenJS.NodeJS".to_string()));
 }
@@ -246,7 +250,8 @@ impl MockRunner {
         }
     }
     fn add(&mut self, bin: &str, args: &str, out: &str) {
-        self.responses.insert(format!("{} {}", bin, args), out.to_string());
+        self.responses
+            .insert(format!("{} {}", bin, args), out.to_string());
     }
 }
 
@@ -394,15 +399,35 @@ fn rank_and_filter_is_precise_and_separator_tolerant() {
 
     let mut input = vec![
         // name contains "redis" as substring (tier 2)
-        SearchResult { name: "php-redis".into(), description: "redis client".into(), ..base.clone() },
+        SearchResult {
+            name: "php-redis".into(),
+            description: "redis client".into(),
+            ..base.clone()
+        },
         // name is exact match (tier 0)
-        SearchResult { name: "redis".into(), description: "in-memory store".into(), ..base.clone() },
+        SearchResult {
+            name: "redis".into(),
+            description: "in-memory store".into(),
+            ..base.clone()
+        },
         // unrelated — must be dropped
-        SearchResult { name: "postgresql".into(), description: "sql database".into(), ..base.clone() },
+        SearchResult {
+            name: "postgresql".into(),
+            description: "sql database".into(),
+            ..base.clone()
+        },
         // description contains "redis" (tier 3)
-        SearchResult { name: "somecache".into(), description: "a redis-compatible cache".into(), ..base.clone() },
+        SearchResult {
+            name: "somecache".into(),
+            description: "a redis-compatible cache".into(),
+            ..base.clone()
+        },
         // name starts with "redis" (tier 1)
-        SearchResult { name: "redis-server".into(), description: "server".into(), ..base.clone() },
+        SearchResult {
+            name: "redis-server".into(),
+            description: "server".into(),
+            ..base.clone()
+        },
     ];
 
     let out = rank_and_filter("redis", input);
@@ -415,31 +440,54 @@ fn rank_and_filter_is_precise_and_separator_tolerant() {
 
     // Separator normalization: searching "node js" must match "nodejs"/"node-js".
     let sep_input = vec![
-        SearchResult { name: "node.js".into(), description: "js runtime".into(), ..base.clone() },
-        SearchResult { name: "webpack".into(), description: "bundler".into(), ..base.clone() },
-        SearchResult { name: "nodejs".into(), description: "another runtime".into(), ..base.clone() },
+        SearchResult {
+            name: "node.js".into(),
+            description: "js runtime".into(),
+            ..base.clone()
+        },
+        SearchResult {
+            name: "webpack".into(),
+            description: "bundler".into(),
+            ..base.clone()
+        },
+        SearchResult {
+            name: "nodejs".into(),
+            description: "another runtime".into(),
+            ..base.clone()
+        },
     ];
     let sep_out = rank_and_filter("node js", sep_input);
     let sep_names: Vec<&str> = sep_out.iter().map(|r| r.name.as_str()).collect();
-    assert!(sep_names.contains(&"node.js"), "node.js must match 'node js'");
+    assert!(
+        sep_names.contains(&"node.js"),
+        "node.js must match 'node js'"
+    );
     assert!(sep_names.contains(&"nodejs"), "nodejs must match 'node js'");
-    assert!(!sep_names.contains(&"webpack"), "unrelated webpack must be dropped");
+    assert!(
+        !sep_names.contains(&"webpack"),
+        "unrelated webpack must be dropped"
+    );
 
     // Empty term returns everything unchanged (no accidental filtering).
-    let all = rank_and_filter("", vec![
-        SearchResult { name: "a".into(), ..base.clone() },
-        SearchResult { name: "b".into(), ..base.clone() },
-    ]);
+    let all = rank_and_filter(
+        "",
+        vec![
+            SearchResult {
+                name: "a".into(),
+                ..base.clone()
+            },
+            SearchResult {
+                name: "b".into(),
+                ..base.clone()
+            },
+        ],
+    );
     assert_eq!(all.len(), 2);
 }
 
 #[test]
 fn details_extracts_fields() {
-    let d = details(
-        PackageManagerKind::Apt,
-        "redis-server",
-        &*MOCK,
-    );
+    let d = details(PackageManagerKind::Apt, "redis-server", &*MOCK);
     assert_eq!(d.name, "redis-server");
     assert_eq!(d.source_manager, PackageManagerKind::Apt);
     assert!(d.description.contains("Persistent"));
@@ -470,7 +518,10 @@ fn brew_pins_version_with_at() {
 #[test]
 fn choco_pins_version_with_flag() {
     let cmd = build_versioned_install_cmd(PackageManagerKind::Choco, "php", Some("8.3.0"));
-    assert_eq!(cmd, vec!["choco", "install", "php", "-y", "--version", "8.3.0"]);
+    assert_eq!(
+        cmd,
+        vec!["choco", "install", "php", "-y", "--version", "8.3.0"]
+    );
 }
 
 #[test]
@@ -485,16 +536,26 @@ fn winget_pins_version_with_flag() {
 #[test]
 fn empty_version_installs_latest() {
     let cmd = build_versioned_install_cmd(PackageManagerKind::Apt, "php", None);
-    assert_eq!(cmd, build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php"));
+    assert_eq!(
+        cmd,
+        build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php")
+    );
     let cmd = build_versioned_install_cmd(PackageManagerKind::Apt, "php", Some("  "));
-    assert_eq!(cmd, build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php"));
+    assert_eq!(
+        cmd,
+        build_install_cmd(PackageManagerKind::Apt, PmAction::Install, "php")
+    );
 }
 
 #[test]
 fn managers_without_pinning_install_latest() {
     // pacman/scoop/nix have no reliable pin syntax: must emit a plain,
     // manager-accepted install rather than a fabricated `pkg-version` name.
-    for kind in [PackageManagerKind::Pacman, PackageManagerKind::Scoop, PackageManagerKind::Nix] {
+    for kind in [
+        PackageManagerKind::Pacman,
+        PackageManagerKind::Scoop,
+        PackageManagerKind::Nix,
+    ] {
         let cmd = build_versioned_install_cmd(kind, "htop", Some("3.3.0"));
         assert_eq!(cmd, build_install_cmd(kind, PmAction::Install, "htop"));
     }
@@ -505,9 +566,18 @@ fn managers_without_pinning_install_latest() {
 #[test]
 fn classify_failure_reasons() {
     use crate::core::system::installer::progress::classify_failure;
-    assert_eq!(classify_failure(Some(1), "E: permission denied"), "permission_denied");
-    assert_eq!(classify_failure(Some(100), "Failed to fetch http://…"), "network");
-    assert_eq!(classify_failure(Some(100), "E: Unable to locate package foo"), "not_found");
+    assert_eq!(
+        classify_failure(Some(1), "E: permission denied"),
+        "permission_denied"
+    );
+    assert_eq!(
+        classify_failure(Some(100), "Failed to fetch http://…"),
+        "network"
+    );
+    assert_eq!(
+        classify_failure(Some(100), "E: Unable to locate package foo"),
+        "not_found"
+    );
     assert_eq!(classify_failure(Some(124), ""), "timeout");
     assert_eq!(classify_failure(Some(1), "weird output"), "unknown");
 }

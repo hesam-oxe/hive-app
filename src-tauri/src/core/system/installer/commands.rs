@@ -1,11 +1,11 @@
-use crate::core::system::package_manager::catalog::{load_catalog, resolve, CatalogTool};
+use crate::core::system::package_manager::PmAction;
+use crate::core::system::package_manager::catalog::{CatalogTool, load_catalog, resolve};
 use crate::core::system::package_manager::commands::detect_package_managers;
 use crate::core::system::package_manager::registry::{
     build_versioned_install_cmd, requires_elevation,
 };
 use crate::core::system::package_manager::search::parse_kind;
 use crate::core::system::package_manager::types::{OsFamily, PackageManagerKind};
-use crate::core::system::package_manager::PmAction;
 
 use super::package_installer::{cancel_process, run_managed, run_managed_argv, run_managed_cmd};
 use super::static_installer::{remove_static, run_static};
@@ -59,16 +59,18 @@ pub async fn install_tool(
     );
 
     match resolution {
-        crate::core::system::package_manager::Resolution::Managed { manager, package } => run_managed(
-            &app,
-            &tool_id,
-            PmAction::Install,
-            manager,
-            &package,
-            &tool.verify_binary,
-            &tool.verify_version_arg,
-            requires_elevation(manager),
-        ),
+        crate::core::system::package_manager::Resolution::Managed { manager, package } => {
+            run_managed(
+                &app,
+                &tool_id,
+                PmAction::Install,
+                manager,
+                &package,
+                &tool.verify_binary,
+                &tool.verify_version_arg,
+                requires_elevation(manager),
+            )
+        }
         crate::core::system::package_manager::Resolution::Static { archive, url } => {
             run_static(&app, &tool_id, &version, &archive, &url).await
         }
@@ -109,16 +111,18 @@ pub async fn update_tool(
     );
 
     match resolution {
-        crate::core::system::package_manager::Resolution::Managed { manager, package } => run_managed(
-            &app,
-            &tool_id,
-            PmAction::Update,
-            manager,
-            &package,
-            &tool.verify_binary,
-            &tool.verify_version_arg,
-            requires_elevation(manager),
-        ),
+        crate::core::system::package_manager::Resolution::Managed { manager, package } => {
+            run_managed(
+                &app,
+                &tool_id,
+                PmAction::Update,
+                manager,
+                &package,
+                &tool.verify_binary,
+                &tool.verify_version_arg,
+                requires_elevation(manager),
+            )
+        }
         crate::core::system::package_manager::Resolution::Static { archive, url } => {
             run_static(&app, &tool_id, &version, &archive, &url).await
         }
@@ -193,8 +197,8 @@ pub async fn universal_install(
     package: String,
     version: Option<String>,
 ) -> Result<(), String> {
-    let kind = parse_kind(&manager)
-        .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    let kind =
+        parse_kind(&manager).ok_or_else(|| format!("Unknown package manager: {}", manager))?;
     if kind == PackageManagerKind::Static {
         return Err(
             "The static fallback has no install command — use the catalog for static binaries"
@@ -225,8 +229,8 @@ pub async fn universal_update(
     manager: String,
     package: String,
 ) -> Result<(), String> {
-    let kind = parse_kind(&manager)
-        .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    let kind =
+        parse_kind(&manager).ok_or_else(|| format!("Unknown package manager: {}", manager))?;
     if kind == PackageManagerKind::Static {
         return Err(
             "The static fallback has no update command — use the catalog for static binaries"
@@ -252,8 +256,8 @@ pub async fn universal_uninstall(
     manager: String,
     package: String,
 ) -> Result<(), String> {
-    let kind = parse_kind(&manager)
-        .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    let kind =
+        parse_kind(&manager).ok_or_else(|| format!("Unknown package manager: {}", manager))?;
     if kind == PackageManagerKind::Static {
         return Err(
             "Static binaries have no system package to remove — use the catalog uninstall"

@@ -10,8 +10,8 @@ use chrono::Utc;
 use tauri::{AppHandle, Emitter};
 
 use super::registry::{binary_name, requires_elevation};
-use super::types::PackageManagerKind;
 use super::search::parse_kind;
+use super::types::PackageManagerKind;
 use crate::core::system::installer::elevation::{elevation_prefix, resolve_elevation};
 
 /// Last successful repository-index refresh timestamp (RFC3339) per manager.
@@ -32,7 +32,11 @@ pub fn build_refresh_cmd(kind: PackageManagerKind) -> Vec<String> {
         PackageManagerKind::Apt => vec!["apt-get".into(), "update".into()],
         PackageManagerKind::Dnf | PackageManagerKind::Yum => vec![bin.into(), "makecache".into()],
         PackageManagerKind::Pacman => vec!["pacman".into(), "-Sy".into()],
-        PackageManagerKind::Zypper => vec!["zypper".into(), "--non-interactive".into(), "refresh".into()],
+        PackageManagerKind::Zypper => vec![
+            "zypper".into(),
+            "--non-interactive".into(),
+            "refresh".into(),
+        ],
         PackageManagerKind::Apk => vec!["apk".into(), "update".into()],
         PackageManagerKind::Xbps => vec!["xbps-install".into(), "-S".into()],
         PackageManagerKind::Emerge => vec!["emerge".into(), "--sync".into()],
@@ -50,7 +54,10 @@ pub fn build_refresh_cmd(kind: PackageManagerKind) -> Vec<String> {
 
 /// Returns RFC3339 timestamp of the last successful index refresh for a manager.
 pub fn last_updated(kind: PackageManagerKind) -> Option<String> {
-    FRESHNESS.lock().ok().and_then(|g| g.get(&format!("{:?}", kind)).cloned())
+    FRESHNESS
+        .lock()
+        .ok()
+        .and_then(|g| g.get(&format!("{:?}", kind)).cloned())
 }
 
 fn record(kind: PackageManagerKind) {
@@ -65,8 +72,8 @@ fn record(kind: PackageManagerKind) {
 /// keystroke (see "Online vs Offline Search Behavior").
 #[tauri::command]
 pub fn refresh_package_index(app: AppHandle, manager: String) -> Result<(), String> {
-    let kind = parse_kind(&manager)
-        .ok_or_else(|| format!("Unknown package manager: {}", manager))?;
+    let kind =
+        parse_kind(&manager).ok_or_else(|| format!("Unknown package manager: {}", manager))?;
     let argv = build_refresh_cmd(kind);
 
     // No-op managers: just mark as fresh and return.

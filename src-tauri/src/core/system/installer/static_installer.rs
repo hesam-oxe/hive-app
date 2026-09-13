@@ -39,7 +39,11 @@ pub async fn run_static(
     .ok();
 
     let runtimes_dir = get_runtimes_path();
-    let runtime_path = runtimes_dir.join(tool_id).join(if version.is_empty() { "latest" } else { version });
+    let runtime_path = runtimes_dir.join(tool_id).join(if version.is_empty() {
+        "latest"
+    } else {
+        version
+    });
 
     if runtime_path.exists() {
         fs::remove_dir_all(&runtime_path).map_err(|e| e.to_string())?;
@@ -97,7 +101,11 @@ pub async fn run_static(
     )
     .ok();
 
-    let ver = if version.is_empty() { "latest" } else { version };
+    let ver = if version.is_empty() {
+        "latest"
+    } else {
+        version
+    };
     create_runtime_link(tool_id, ver, &runtime_path).map_err(|e| e)?;
 
     app.emit(
@@ -106,7 +114,11 @@ pub async fn run_static(
             tool_id: tool_id.to_string(),
             action: "install".into(),
             step: "verify".into(),
-            message: format!("{} installed (static) at {}", tool_id, runtime_path.display()),
+            message: format!(
+                "{} installed (static) at {}",
+                tool_id,
+                runtime_path.display()
+            ),
             progress: Some(100.0),
             is_stderr: false,
             log: None,
@@ -125,13 +137,21 @@ pub async fn run_static(
 /// Remove a previously installed static binary: delete the runtime dir and
 /// its Hive bin shim (mirrors `uninstall_runtime` for static types).
 pub fn remove_static(tool_id: &str, version: &str) -> Result<(), String> {
-    let ver = if version.is_empty() { "latest" } else { version };
+    let ver = if version.is_empty() {
+        "latest"
+    } else {
+        version
+    };
     let rt = get_runtimes_path().join(tool_id).join(ver);
     if rt.exists() {
         fs::remove_dir_all(&rt).map_err(|e| e.to_string())?;
     }
     let bin_dir = get_hive_bin_path();
-    for name in [tool_id.to_string(), format!("{}.sh", tool_id), format!("{}.bat", tool_id)] {
+    for name in [
+        tool_id.to_string(),
+        format!("{}.sh", tool_id),
+        format!("{}.bat", tool_id),
+    ] {
         let p = bin_dir.join(&name);
         if p.exists() {
             let _ = fs::remove_file(&p);

@@ -176,7 +176,10 @@ pub fn requires_elevation(kind: PackageManagerKind) -> bool {
 
 /// Returns all managers belonging to an OS family (excluding Static).
 pub fn managers_for_os(os: OsFamily) -> Vec<&'static PackageManager> {
-    MANAGERS.iter().filter(|m| m.os == os && m.kind != PackageManagerKind::Static).collect()
+    MANAGERS
+        .iter()
+        .filter(|m| m.os == os && m.kind != PackageManagerKind::Static)
+        .collect()
 }
 
 /// The binary name probed on PATH for each manager.
@@ -210,18 +213,54 @@ pub fn build_install_cmd(kind: PackageManagerKind, action: PmAction, pkg: &str) 
     match kind {
         PackageManagerKind::Apt => match action {
             PmAction::Install => vec!["apt-get".into(), "install".into(), "-y".into(), pkg.into()],
-            PmAction::Update => vec!["apt-get".into(), "install".into(), "-y".into(), "--only-upgrade".into(), pkg.into()],
+            PmAction::Update => vec![
+                "apt-get".into(),
+                "install".into(),
+                "-y".into(),
+                "--only-upgrade".into(),
+                pkg.into(),
+            ],
             PmAction::Remove => vec!["apt-get".into(), "remove".into(), "-y".into(), pkg.into()],
         },
         PackageManagerKind::Dnf | PackageManagerKind::Yum => match action {
-            PmAction::Install => vec![binary_name(kind).into(), "install".into(), "-y".into(), pkg.into()],
-            PmAction::Update => vec![binary_name(kind).into(), "upgrade".into(), "-y".into(), pkg.into()],
-            PmAction::Remove => vec![binary_name(kind).into(), "remove".into(), "-y".into(), pkg.into()],
+            PmAction::Install => vec![
+                binary_name(kind).into(),
+                "install".into(),
+                "-y".into(),
+                pkg.into(),
+            ],
+            PmAction::Update => vec![
+                binary_name(kind).into(),
+                "upgrade".into(),
+                "-y".into(),
+                pkg.into(),
+            ],
+            PmAction::Remove => vec![
+                binary_name(kind).into(),
+                "remove".into(),
+                "-y".into(),
+                pkg.into(),
+            ],
         },
         PackageManagerKind::Pacman => match action {
-            PmAction::Install => vec!["pacman".into(), "-S".into(), "--noconfirm".into(), pkg.into()],
-            PmAction::Update => vec!["pacman".into(), "-S".into(), "--noconfirm".into(), pkg.into()],
-            PmAction::Remove => vec!["pacman".into(), "-R".into(), "--noconfirm".into(), pkg.into()],
+            PmAction::Install => vec![
+                "pacman".into(),
+                "-S".into(),
+                "--noconfirm".into(),
+                pkg.into(),
+            ],
+            PmAction::Update => vec![
+                "pacman".into(),
+                "-S".into(),
+                "--noconfirm".into(),
+                pkg.into(),
+            ],
+            PmAction::Remove => vec![
+                "pacman".into(),
+                "-R".into(),
+                "--noconfirm".into(),
+                pkg.into(),
+            ],
         },
         PackageManagerKind::Zypper => match action {
             PmAction::Install => vec!["zypper".into(), "install".into(), "-y".into(), pkg.into()],
@@ -249,8 +288,18 @@ pub fn build_install_cmd(kind: PackageManagerKind, action: PmAction, pkg: &str) 
             PmAction::Remove => vec!["eopkg".into(), "remove".into(), pkg.into()],
         },
         PackageManagerKind::Nix => match action {
-            PmAction::Install => vec!["nix".into(), "profile".into(), "install".into(), format!("nixpkgs#{}", pkg)],
-            PmAction::Update => vec!["nix".into(), "profile".into(), "upgrade".into(), format!("nixpkgs#{}", pkg)],
+            PmAction::Install => vec![
+                "nix".into(),
+                "profile".into(),
+                "install".into(),
+                format!("nixpkgs#{}", pkg),
+            ],
+            PmAction::Update => vec![
+                "nix".into(),
+                "profile".into(),
+                "upgrade".into(),
+                format!("nixpkgs#{}", pkg),
+            ],
             PmAction::Remove => vec!["nix".into(), "profile".into(), "remove".into(), pkg.into()],
         },
         PackageManagerKind::Brew => match action {
@@ -273,8 +322,20 @@ pub fn build_install_cmd(kind: PackageManagerKind, action: PmAction, pkg: &str) 
                 "--accept-package-agreements".into(),
                 "--accept-source-agreements".into(),
             ],
-            PmAction::Update => vec!["winget".into(), "upgrade".into(), "--exact".into(), "--id".into(), pkg.into()],
-            PmAction::Remove => vec!["winget".into(), "uninstall".into(), "--exact".into(), "--id".into(), pkg.into()],
+            PmAction::Update => vec![
+                "winget".into(),
+                "upgrade".into(),
+                "--exact".into(),
+                "--id".into(),
+                pkg.into(),
+            ],
+            PmAction::Remove => vec![
+                "winget".into(),
+                "uninstall".into(),
+                "--exact".into(),
+                "--id".into(),
+                pkg.into(),
+            ],
         },
         PackageManagerKind::Choco => match action {
             PmAction::Install => vec!["choco".into(), "install".into(), pkg.into(), "-y".into()],
@@ -325,7 +386,11 @@ pub fn build_versioned_install_cmd(
             vec!["apk".into(), "add".into(), format!("{}={}", pkg, version)]
         }
         PackageManagerKind::Brew => {
-            vec!["brew".into(), "install".into(), format!("{}@{}", pkg, version)]
+            vec![
+                "brew".into(),
+                "install".into(),
+                format!("{}@{}", pkg, version),
+            ]
         }
         PackageManagerKind::Port => vec![
             "port".into(),

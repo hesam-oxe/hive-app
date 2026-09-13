@@ -107,7 +107,12 @@ impl SearchRunner for SystemRunner {
 
     fn exists_on_path(&self, bin: &str) -> bool {
         let probe = if cfg!(windows) { "where" } else { "which" };
-        if Command::new(probe).arg(bin).output().map(|o| o.status.success()).unwrap_or(false) {
+        if Command::new(probe)
+            .arg(bin)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
             return true;
         }
         Command::new(bin)
@@ -197,11 +202,22 @@ pub fn build_search_cmd(kind: PackageManagerKind, term: &str) -> Vec<String> {
         // network. `apt search` can trigger a refresh, so we avoid it.
         PackageManagerKind::Apt => vec!["apt-cache".into(), "search".into(), term.into()],
         PackageManagerKind::Dnf | PackageManagerKind::Yum => {
-            vec![bin.into(), "--cacheonly".into(), "search".into(), term.into()]
+            vec![
+                bin.into(),
+                "--cacheonly".into(),
+                "search".into(),
+                term.into(),
+            ]
         }
         PackageManagerKind::Pacman => vec![bin.into(), "-Ss".into(), term.into()],
         PackageManagerKind::Zypper => {
-            vec![bin.into(), "search".into(), "-t".into(), "package".into(), term.into()]
+            vec![
+                bin.into(),
+                "search".into(),
+                "-t".into(),
+                "package".into(),
+                term.into(),
+            ]
         }
         PackageManagerKind::Apk => vec![bin.into(), "search".into(), "-v".into(), term.into()],
         // `xbps-query -Rs` queries the local repository cache (offline-safe).
@@ -256,11 +272,23 @@ pub fn build_info_cmd(kind: PackageManagerKind, package: &str) -> Vec<String> {
         PackageManagerKind::Emerge => vec![bin.into(), "--info".into(), package.into()],
         PackageManagerKind::Eopkg => vec![bin.into(), "info".into(), package.into()],
         PackageManagerKind::Nix => {
-            vec![bin.into(), "search".into(), "nixpkgs".into(), "-v".into(), package.into()]
+            vec![
+                bin.into(),
+                "search".into(),
+                "nixpkgs".into(),
+                "-v".into(),
+                package.into(),
+            ]
         }
         PackageManagerKind::Brew => vec![bin.into(), "info".into(), package.into()],
         PackageManagerKind::Port => vec![bin.into(), "info".into(), package.into()],
-        PackageManagerKind::Winget => vec![bin.into(), "show".into(), "--exact".into(), "--id".into(), package.into()],
+        PackageManagerKind::Winget => vec![
+            bin.into(),
+            "show".into(),
+            "--exact".into(),
+            "--id".into(),
+            package.into(),
+        ],
         PackageManagerKind::Choco => vec![bin.into(), "info".into(), package.into()],
         PackageManagerKind::Scoop => vec![bin.into(), "info".into(), package.into()],
         PackageManagerKind::Static => vec![],
@@ -390,7 +418,11 @@ fn pacman_normalize(raw: &str) -> Vec<SearchResult> {
                     name,
                     canonical_id: format!("pacman:{}", repo_name),
                     description: String::new(),
-                    available_versions: if version.is_empty() { vec![] } else { vec![version.clone()] },
+                    available_versions: if version.is_empty() {
+                        vec![]
+                    } else {
+                        vec![version.clone()]
+                    },
                     source_manager: PackageManagerKind::Pacman,
                     is_installed: installed,
                     installed_version: if installed { Some(version) } else { None },
@@ -575,9 +607,7 @@ fn winget_normalize(raw: &str) -> Vec<SearchResult> {
         }
         let cells: Vec<&str> = line.split_whitespace().collect();
         // Header row: Name Id Version Source — detect by first cell being "Name".
-        if cells.first().map(|c| *c == "Name").unwrap_or(false)
-            && cells.len() >= 3
-        {
+        if cells.first().map(|c| *c == "Name").unwrap_or(false) && cells.len() >= 3 {
             header = Some(cells.into_iter().map(|c| c.to_string()).collect());
             continue;
         }
@@ -726,7 +756,10 @@ fn nix_normalize(raw: &str) -> Vec<SearchResult> {
                 .map(|s| s.to_string())
                 .or_else(|| key.split('.').last().map(|s| s.to_string()))
                 .unwrap_or_else(|| key.clone());
-            let version = v.get("version").and_then(|n| n.as_str()).map(|s| s.to_string());
+            let version = v
+                .get("version")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string());
             out.push(SearchResult {
                 name: name.clone(),
                 canonical_id: format!("nix:{}", key),
@@ -785,7 +818,9 @@ pub fn installed_names(
     let bin = binary_name(kind);
     let raw = match kind {
         PackageManagerKind::Apt => runner.run(bin, &["list", "--installed"]),
-        PackageManagerKind::Dnf | PackageManagerKind::Yum => runner.run(bin, &["list", "installed"]),
+        PackageManagerKind::Dnf | PackageManagerKind::Yum => {
+            runner.run(bin, &["list", "installed"])
+        }
         PackageManagerKind::Pacman => runner.run(bin, &["-Q"]),
         PackageManagerKind::Zypper => runner.run(bin, &["search", "-i"]),
         PackageManagerKind::Apk => runner.run(bin, &["info", "-v"]),
@@ -818,11 +853,9 @@ pub fn installed_names(
                     .unwrap_or_default()
                     .to_string(),
                 PackageManagerKind::Brew => line.trim().to_string(),
-                PackageManagerKind::Winget => line
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("")
-                    .to_string(),
+                PackageManagerKind::Winget => {
+                    line.split_whitespace().next().unwrap_or("").to_string()
+                }
                 _ => line
                     .split_whitespace()
                     .next()
@@ -846,7 +879,13 @@ pub fn installed_names(
 /// them resolves the others. Used by `rank_and_filter`.
 fn compact(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_whitespace() || c == '-' || c == '_' || c == '.' { '\u{0}' } else { c.to_ascii_lowercase() })
+        .map(|c| {
+            if c.is_whitespace() || c == '-' || c == '_' || c == '.' {
+                '\u{0}'
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
         .filter(|c: &char| *c != '\u{0}')
         .collect()
 }
@@ -890,7 +929,8 @@ pub fn rank_and_filter(term: &str, mut results: Vec<SearchResult>) -> Vec<Search
     results.sort_by(|a, b| {
         let ta = tier_of(a).unwrap_or(255);
         let tb = tier_of(b).unwrap_or(255);
-        ta.cmp(&tb).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        ta.cmp(&tb)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     results
 }
@@ -989,21 +1029,24 @@ pub fn details(
     // Generic field scan: capture common keys regardless of manager.
     for line in raw.lines() {
         let line = line.trim();
-        if let Some(v) = line.strip_prefix("Description: ")
+        if let Some(v) = line
+            .strip_prefix("Description: ")
             .or_else(|| line.strip_prefix("Summary: "))
             .or_else(|| line.strip_prefix("desc:"))
         {
             if description.is_empty() {
                 description = v.trim().to_string();
             }
-        } else if let Some(v) = line.strip_prefix("Homepage: ")
+        } else if let Some(v) = line
+            .strip_prefix("Homepage: ")
             .or_else(|| line.strip_prefix("URL: "))
             .or_else(|| line.strip_prefix("Project URL: "))
         {
             homepage = Some(v.trim().to_string());
         } else if let Some(v) = line.strip_prefix("License: ") {
             license = Some(v.trim().to_string());
-        } else if let Some(v) = line.strip_prefix("Version: ")
+        } else if let Some(v) = line
+            .strip_prefix("Version: ")
             .or_else(|| line.strip_prefix("Version    : "))
         {
             all_versions.push(v.trim().to_string());
